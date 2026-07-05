@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 
 MY_USERNAME = input("Username: ")
-TARGET_IP = "192.168.0.79"
+TARGET_IP = input("Enter the IP address of th person you want to chat with: ")
 PORT = 50002
 
 GREEN = "\033[92m"
