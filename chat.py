@@ -1,17 +1,16 @@
-import re
 import socket
 import json
 import threading
 
 MY_USERNAME = input("Username: ")
-TARGET_IP = "127.0.0.1"
+TARGET_IP = "192.168.0.79"
 PORT = 50002
 
 
 # Background Receiver
 def listen_for_messages():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("127.0.0.1", PORT))
+    server.bind(("0.0.0.0", PORT))
     server.listen(5)
 
     while True:
