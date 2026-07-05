@@ -1,10 +1,16 @@
 import socket
 import json
 import threading
+from datetime import datetime
 
 MY_USERNAME = input("Username: ")
 TARGET_IP = "192.168.0.79"
 PORT = 50002
+
+GREEN = "\033[92m"
+MAGENTA = "\033[95m"
+GRAY = "\033[90m"
+RESET = "\033[0m"
 
 
 # Background Receiver
@@ -24,6 +30,8 @@ def listen_for_messages():
             received_packet = json.loads(message_string)
             sender = received_packet["user"]
             text = received_packet["message"]
+            time_sent = received_packet.get("timestamp", "00.00")
+            print(f"\n{GRAY}[{time_sent}]{RESET} {MAGENTA}[{sender}]:{RESET} {text}")
 
             # Print message cleanly to screen
             print(f"\n[{sender}]: {text}")
@@ -42,13 +50,19 @@ receiver_thread.start()
 # Main Transmitter Loop
 print("Messenger Initialized. Type a message and hit Enter to send: ")
 while True:
+    current_time = datetime.now().strftime("%H:%M")
     text_message = input("> ")
     if text_message.lower() == "quit":
         print("Shutting down Messenger")
         break
     if not text_message.strip():
         continue
-    packet = {"user": MY_USERNAME, "message": text_message, "online_status": "active"}
+    packet = {
+        "user": MY_USERNAME,
+        "message": text_message,
+        "online_status": "active",
+        "timestamp": current_time,
+    }
     json_packet = json.dumps(packet)
 
     try:
@@ -56,5 +70,7 @@ while True:
         sender_socket.connect((TARGET_IP, PORT))
         sender_socket.send(json_packet.encode("utf-8"))
         sender_socket.close()
+        print(f"{GRAY}[{current_time}]{RESET} {GREEN}[You]:{RESET} {text_message}")
+
     except ConnectionRefusedError:
         print("Could not connect to other user. Check connection.")
