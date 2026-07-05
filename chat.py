@@ -12,6 +12,8 @@ MAGENTA = "\033[95m"
 GRAY = "\033[90m"
 RESET = "\033[0m"
 
+ACTIVE_USERS = {}
+
 
 # Background Receiver
 def listen_for_messages():
@@ -31,6 +33,8 @@ def listen_for_messages():
             sender = received_packet["user"]
             text = received_packet["message"]
             time_sent = received_packet.get("timestamp", "00.00")
+            ACTIVE_USERS[sender] = time_sent
+            print(f"Current Active Users: {list(ACTIVE_USERS.keys())}")
             print(f"\n{GRAY}[{time_sent}]{RESET} {MAGENTA}[{sender}]:{RESET} {text}")
 
             # Print message cleanly to screen
