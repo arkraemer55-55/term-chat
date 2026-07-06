@@ -1,0 +1,6 @@
+When you are ready to hand it off, zip up that folder or toss it onto a private GitHub repo. All your dad has to do on his machine is open his terminal inside that folder and run:
+
+chmod +x install.sh
+./install.sh
+
+The script will instantly take care of installing sox, verifying dependencies, adding the proper execution permissions, and naming the app termchat.
