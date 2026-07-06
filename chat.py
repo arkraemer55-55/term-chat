@@ -2,6 +2,7 @@ import socket
 import json
 import threading
 import curses
+import time
 from datetime import datetime
 
 
@@ -62,83 +63,103 @@ def listen_for_messages(chat_win, user_win):
 # PILLAR 2: THE UI ENGINE & TRANSMITTER
 # ==========================================
 def main_app(stdscr):
-    # Hide the default terminal cursor blinking randomly
     curses.curs_set(1)
+    # Make getch() non-blocking so our loop can check for screen resizes constantly
+    # stdscr.nodelay(True)
 
-    # Get total layout dimensions of your terminal window
-    max_y, max_x = stdscr.getmaxyx()
+    # We move window creation into a helper inner-function so we can re-run it when resizing!
+    def create_layout():
+        max_y, max_x = stdscr.getmaxyx()
+        chat_w = int(max_x * 0.70)  # Lowered slightly to guarantee sidebar visibility
+        user_w = max_x - chat_w
+        body_h = max_y - 4
 
-    # Define window dimensions based on screen size
-    # chat_win takes up most of the screen, user_win takes a right-side panel
-    chat_w = int(max_x * 0.75)
-    user_w = max_x - chat_w
-    body_h = max_y - 4  # Reserve space at the top/bottom for titles and input
+        stdscr.clear()
+        h_win = curses.newwin(3, max_x, 0, 0)
+        c_win = curses.newwin(body_h, chat_w, 3, 0)
+        u_win = curses.newwin(body_h, user_w, 3, chat_w)
+        i_win = curses.newwin(1, max_x, max_y - 1, 0)
 
-    # Create the Sub-Windows: (height, width, start_y, start_x)
-    header_win = curses.newwin(3, max_x, 0, 0)
-    chat_win = curses.newwin(body_h, chat_w, 3, 0)
-    user_win = curses.newwin(body_h, user_w, 3, chat_w)
-    input_win = curses.newwin(1, max_x, max_y - 1, 0)
+        c_win.scrollok(True)
 
-    # Enable automatic scrolling in the chat body window
-    chat_win.scrollok(True)
+        # Redraw borders
+        h_win.box()
+        h_win.addstr(1, 2, f"🏁 TERM-CHAT v2.0 | User: {MY_USERNAME}", curses.A_BOLD)
+        h_win.refresh()
 
-    # Draw static UI borders and headers
-    header_win.box()
-    header_win.addstr(1, 2, f"🏁 TERM-CHAT v2.0 | User: {MY_USERNAME}", curses.A_BOLD)
-    header_win.refresh()
+        u_win.box()
+        u_win.addstr(1, 1, "👥 ONLINE PEERS", curses.A_BOLD)
+        # Re-populate existing users on resize
+        for idx, username in enumerate(ACTIVE_USERS.keys(), start=2):
+            if idx < body_h - 1:  # Prevent crashing if window is too short
+                u_win.addstr(idx, 1, f"• {username}")
+        u_win.refresh()
 
-    user_win.box()
-    user_win.addstr(1, 1, "👥 ONLINE PEERS", curses.A_BOLD)
-    user_win.refresh()
+        return h_win, c_win, u_win, i_win
 
-    # Spin up our background receiver thread, passing it our fresh layout windows
+    header_win, chat_win, user_win, input_win = create_layout()
+    input_win.nodelay(True)
+
+    # Spin up background receiver
     receiver_thread = threading.Thread(
         target=listen_for_messages, args=(chat_win, user_win), daemon=True
     )
     receiver_thread.start()
 
-    # The Main Input Transmitter Loop
+    input_buffer = ""
+
     while True:
-        # Reset the input bar row
-        input_win.clear()
-        input_win.addstr(0, 0, "> ")
-        input_win.refresh()
-
-        # Capture keystrokes from the user inside our input box window
-        curses.echo()
-        text_message = input_win.getstr(0, 2).decode("utf-8").strip()
-        curses.noecho()
-
-        if not text_message:
+        # 1. Handle Responsive Window Resizing
+        ch = input_win.getch()
+        if ch == curses.KEY_RESIZE:
+            curses.update_lines_cols()
+            header_win, chat_win, user_win, input_win = create_layout()
+            # Re-pass fresh windows to our background thread safely
             continue
 
-        if text_message.lower() == "/exit":
-            break
+        # 2. Render the Input Bar dynamically
+        input_win.clear()
+        input_win.addstr(0, 0, f"> {input_buffer}")
+        input_win.refresh()
 
-        current_time = datetime.now().strftime("%H:%M")
+        # 3. Custom Input Reader (to capture keystrokes smoothly alongside thread updates)
+        if ch != -1:
+            if ch in (10, 13):  # Enter Key pressed
+                text_message = input_buffer.strip()
+                input_buffer = ""  # Clear buffer
 
-        # Construct the outbound packet
-        packet = {
-            "user": MY_USERNAME,
-            "message": text_message,
-            "timestamp": current_time,
-        }
-        json_packet = json.dumps(packet)
+                if not text_message:
+                    continue
 
-        try:
-            sender_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sender_socket.connect((TARGET_IP, PORT))
-            sender_socket.send(json_packet.encode("utf-8"))
-            sender_socket.close()
+                # Flexible Exit Conditions!
+                if text_message.lower() in ("/exit", "exit", "quit"):
+                    break
 
-            # Print your own message locally in the chat window cleanly
-            chat_win.addstr(f"[{current_time}] [You]: {text_message}\n")
-            chat_win.refresh()
+                current_time = datetime.now().strftime("%H:%M")
+                packet = {
+                    "user": MY_USERNAME,
+                    "message": text_message,
+                    "timestamp": current_time,
+                }
 
-        except ConnectionRefusedError:
-            chat_win.addstr("❌ Could not connect to the other user.\n")
-            chat_win.refresh()
+                try:
+                    sender_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sender_socket.connect((TARGET_IP, PORT))
+                    sender_socket.send(json.dumps(packet).encode("utf-8"))
+                    sender_socket.close()
+
+                    chat_win.addstr(f"[{current_time}] [You]: {text_message}\n")
+                    chat_win.refresh()
+                except ConnectionRefusedError:
+                    chat_win.addstr("❌ Could not connect.\n")
+                    chat_win.refresh()
+
+            elif ch in (263, 127, 8):  # Backspace handling
+                input_buffer = input_buffer[:-1]
+            elif 32 <= ch <= 126:  # Regular typing characters
+                input_buffer += chr(ch)
+        if ch == -1:
+            time.sleep(0.02)
 
 
 # This is the magic wrapper that safely boots up and shuts down curses
