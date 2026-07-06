@@ -158,13 +158,27 @@ def main_app(stdscr):
         elif 32 <= ch <= 126:  # Regular typing characters
             input_buffer += chr(ch)
 
+        # Bring cursor back to active end-of-line
         # ==========================================
         # STEP B: RENDER THE UPDATED BUFFER IMMEDIATELY
         # ==========================================
         curses.curs_set(0)  # Hide cursor while wiping line
 
+        # 1. Grab the current width of the terminal screen
+        _, max_x = input_win.getmaxyx()
+
+        # 2. Leave space for the "> " prompt (2 characters) and a safety margin
+        visible_width = max_x - 3
+
+        # 3. Slice the text to only show what fits from the right side!
+        visible_text = (
+            input_buffer[-visible_width:]
+            if len(input_buffer) > visible_width
+            else input_buffer
+        )
+
         input_win.clear()
-        input_win.addstr(0, 0, f"> {input_buffer}")
+        input_win.addstr(0, 0, f"> {visible_text}")
         input_win.refresh()
 
         curses.curs_set(1)  # Bring cursor back to active end-of-line
