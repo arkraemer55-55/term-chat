@@ -116,11 +116,14 @@ def main_app(stdscr):
             header_win, chat_win, user_win, input_win = create_layout()
             # Re-pass fresh windows to our background thread safely
             continue
+        curses.curs_set(0)
 
         # 2. Render the Input Bar dynamically
         input_win.clear()
         input_win.addstr(0, 0, f"> {input_buffer}")
         input_win.refresh()
+
+        curses.curs_set(1)
 
         # 3. Custom Input Reader (to capture keystrokes smoothly alongside thread updates)
         if ch != -1:
