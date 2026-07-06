@@ -3,8 +3,9 @@ import threading
 import sys
 import curses
 import json
-from datetime import datetime
 import textwrap
+import os  # Added to trigger system audio alerts
+from datetime import datetime
 
 SERVER_IP = "100.70.188.58"
 PORT = 50002
@@ -15,8 +16,17 @@ username = ""
 client_socket = None
 
 
+def play_alert_sound():
+    """Triggers a native motherboard system bell alert across different OS environments."""
+    try:
+        # Standard ASCII Bell character works natively in most terminals/OS environments
+        sys.stdout.write("\a")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
 def receive_messages(stdscr, msg_win, user_win):
-    """Listens for JSON data frames from the server and sorts them accordingly."""
     global messages, online_users
     while True:
         try:
@@ -24,12 +34,13 @@ def receive_messages(stdscr, msg_win, user_win):
             if not data:
                 break
 
-            # Parse the server packet
             packet = json.loads(data.decode("utf-8"))
 
             if packet["type"] == "MSG":
                 messages.append(packet["data"])
                 draw_messages(msg_win)
+                # Play audio notification because an incoming packet just landed!
+                play_alert_sound()
             elif packet["type"] == "USERS":
                 online_users = packet["data"]
                 draw_users(user_win)
@@ -39,20 +50,28 @@ def receive_messages(stdscr, msg_win, user_win):
 
 
 def draw_messages(msg_win):
-    """Renders the message feed with dynamic word-wrapping based on window width."""
+    """Renders wrapped message packets with distinct identity-based colors."""
     msg_win.erase()
     h, w = msg_win.getmaxyx()
-    max_line_width = w - 3  # Leave a small buffer padding for boundaries
+    max_line_width = w - 3
 
-    # Process and wrap all incoming messages
+    # We will store pairs of (text_line, color_pair_id)
     wrapped_lines = []
-    for msg in messages:
-        # textwrap.wrap breaks a single string into a list of chunks that fit max_line_width
-        chunks = textwrap.wrap(msg, width=max_line_width)
-        for chunk in chunks:
-            wrapped_lines.append(chunk)
 
-    # Calculate how many wrapped lines fit in the height of the window box
+    for msg in messages:
+        chunks = textwrap.wrap(msg, width=max_line_width)
+
+        # Determine the color of this message block by scanning the owner tag
+        # Your messages look like: "[12:34] <YourName> hello"
+        user_tag = f"<{username}>"
+        if user_tag in msg:
+            color_id = 1  # Green for you
+        else:
+            color_id = 2  # Magenta for everyone else
+
+        for chunk in chunks:
+            wrapped_lines.append((chunk, color_id))
+
     max_visible = h - 2
     visible_lines = (
         wrapped_lines[-max_visible:]
@@ -60,10 +79,10 @@ def draw_messages(msg_win):
         else wrapped_lines
     )
 
-    # Render the visible lines on screen
-    for idx, line in enumerate(visible_lines):
+    for idx, (line, color_id) in enumerate(visible_lines):
         try:
-            msg_win.addstr(idx + 1, 1, line)
+            # Inject the custom color profile attribute natively into curses
+            msg_win.addstr(idx + 1, 1, line, curses.color_pair(color_id))
         except curses.error:
             pass
 
@@ -72,7 +91,6 @@ def draw_messages(msg_win):
 
 
 def draw_users(user_win):
-    """Renders the active users box list."""
     user_win.erase()
     h, w = user_win.getmaxyx()
 
@@ -83,8 +101,8 @@ def draw_users(user_win):
 
     for idx, user in enumerate(online_users[: h - 2]):
         try:
-            # Bullet point active users
-            user_win.addstr(idx + 1, 1, f"• {user[: w - 3]}")
+            # Let's highlight users in the sidebar using Magenta as well!
+            user_win.addstr(idx + 1, 1, f"• {user[: w - 3]}", curses.color_pair(2))
         except curses.error:
             pass
     user_win.box()
@@ -107,22 +125,28 @@ def draw_input_box(input_win, current_text):
 
 def curses_chat(stdscr):
     global messages, client_socket
+
+    # 🎨 INITIALIZE TERMINAL COLORS MATRIX
+    curses.start_color()
+    curses.use_default_colors()
+    # Pair 1: Green text, Default transparent background
+    curses.init_pair(1, curses.COLOR_GREEN, -1)
+    # Pair 2: Magenta text, Default transparent background
+    curses.init_pair(2, curses.COLOR_MAGENTA, -1)
+
     curses.curs_set(1)
     stdscr.clear()
 
     height, width = stdscr.getmaxyx()
     msg_win_height = height - 3
 
-    # 80/20 Layout Split for Chat window and Users Sidebar
     sidebar_width = 20 if width > 60 else 15
     chat_width = width - sidebar_width
 
-    # Build our distinct layout elements
     msg_win = curses.newwin(msg_win_height, chat_width, 0, 0)
     user_win = curses.newwin(msg_win_height, sidebar_width, 0, chat_width)
     input_win = curses.newwin(3, width, msg_win_height, 0)
 
-    # Draw empty panels initially
     draw_messages(msg_win)
     draw_users(user_win)
 
@@ -177,8 +201,6 @@ def main():
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_socket.connect((SERVER_IP, PORT))
-
-        # Send our handshake username packet immediately on connect
         client_socket.send(username.encode("utf-8"))
         print("✅ Connected securely via Tailscale!")
     except Exception as e:
