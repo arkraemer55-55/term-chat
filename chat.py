@@ -109,58 +109,67 @@ def main_app(stdscr):
     input_buffer = ""
 
     while True:
-        # 1. Handle Responsive Window Resizing
         ch = input_win.getch()
+
+        # 1. Handle Responsive Window Resizing
         if ch == curses.KEY_RESIZE:
             curses.update_lines_cols()
             header_win, chat_win, user_win, input_win = create_layout()
-            # Re-pass fresh windows to our background thread safely
+            input_win.nodelay(True)
             continue
+
+        # 2. If NO key is pressed, sleep and skip the rest of the loop entirely!
+        if ch == -1:
+            time.sleep(0.02)
+            continue  # Skip redrawing because nothing changed
+
+        # --- EVERYTHING BELOW HERE ONLY RUNS IF A KEY WAS ACTUALLY PRESSED ---
+
+        # Hide cursor while we update the typing line
         curses.curs_set(0)
 
-        # 2. Render the Input Bar dynamically
+        # 3. Render the Input Bar dynamically (Only on keypress!)
         input_win.clear()
         input_win.addstr(0, 0, f"> {input_buffer}")
         input_win.refresh()
 
+        # Bring the cursor back to your typing position
         curses.curs_set(1)
 
-        # 3. Custom Input Reader (to capture keystrokes smoothly alongside thread updates)
-        if ch != -1:
-            if ch in (10, 13):  # Enter Key pressed
-                text_message = input_buffer.strip()
-                input_buffer = ""  # Clear buffer
+        # 4. Custom Input Reader
+        if ch in (10, 13):  # Enter Key pressed
+            text_message = input_buffer.strip()
+            input_buffer = ""  # Clear buffer
 
-                if not text_message:
-                    continue
+            if not text_message:
+                continue
 
-                # Flexible Exit Conditions!
-                if text_message.lower() in ("/exit", "exit", "quit"):
-                    break
+            if text_message.lower() in ("/exit", "exit", "quit"):
+                break
 
-                current_time = datetime.now().strftime("%H:%M")
-                packet = {
-                    "user": MY_USERNAME,
-                    "message": text_message,
-                    "timestamp": current_time,
-                }
+            current_time = datetime.now().strftime("%H:%M")
+            packet = {
+                "user": MY_USERNAME,
+                "message": text_message,
+                "timestamp": current_time,
+            }
 
-                try:
-                    sender_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sender_socket.connect((TARGET_IP, PORT))
-                    sender_socket.send(json.dumps(packet).encode("utf-8"))
-                    sender_socket.close()
+            try:
+                sender_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sender_socket.connect((TARGET_IP, PORT))
+                sender_socket.send(json.dumps(packet).encode("utf-8"))
+                sender_socket.close()
 
-                    chat_win.addstr(f"[{current_time}] [You]: {text_message}\n")
-                    chat_win.refresh()
-                except ConnectionRefusedError:
-                    chat_win.addstr("❌ Could not connect.\n")
-                    chat_win.refresh()
+                chat_win.addstr(f"[{current_time}] [You]: {text_message}\n")
+                chat_win.refresh()
+            except ConnectionRefusedError:
+                chat_win.addstr("❌ Could not connect.\n")
+                chat_win.refresh()
 
-            elif ch in (263, 127, 8):  # Backspace handling
-                input_buffer = input_buffer[:-1]
-            elif 32 <= ch <= 126:  # Regular typing characters
-                input_buffer += chr(ch)
+        elif ch in (263, 127, 8):  # Backspace handling
+            input_buffer = input_buffer[:-1]
+        elif 32 <= ch <= 126:  # Regular typing characters
+            input_buffer += chr(ch)
         if ch == -1:
             time.sleep(0.02)
 
