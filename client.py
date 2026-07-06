@@ -17,11 +17,22 @@ client_socket = None
 
 
 def play_alert_sound():
-    """Triggers a native motherboard system bell alert across different OS environments."""
+    import platform
+
     try:
-        # Standard ASCII Bell character works natively in most terminals/OS environments
-        sys.stdout.write("\a")
-        sys.stdout.flush()
+        current_os = platform.system().lower()
+
+        if "linux" in current_os:
+            os.system(
+                "play -q /usr/share/sounds/freedesktop/stereo/message-new-instant.oga &"
+            )
+        elif "darwin" in current_os:  # macOS
+            os.system("afplay /System/Library/Sounds/Glass.aiff &")
+        elif "windows" in current_os:
+            # Uses a built-in PowerShell sound trigger for Windows
+            os.system(
+                "powershell -c (New-Object Media.SoundPlayer 'C:\Windows\Media\notify.wav').Play() &"
+            )
     except Exception:
         pass
 
