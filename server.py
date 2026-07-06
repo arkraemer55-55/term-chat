@@ -1,35 +1,60 @@
 import socket
+import threading
 import json
 
-SERVER_IP = "127.0.0.1"
-PORT = 50001
+PORT = 50002
+clients = set()  # Keeps track of active client connections
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((SERVER_IP, PORT))
-server.listen(1)
-print(f"Server is online and listening on {SERVER_IP}:{PORT}...")
 
-client_socket, client_address = server.accept()
-print(f"Connection established with {client_address}!")
+def broadcast(message_bytes, sender_socket):
+    """Sends a message to every connected client except the sender."""
+    removable = set()
+    for client in clients:
+        if client != sender_socket:
+            try:
+                client.send(message_bytes)
+            except Exception:
+                removable.add(client)
 
-raw_data = client_socket.recv(1024)
-message = raw_data.decode("utf-8")
+    # Clean up disconnected sockets safely
+    for client in removable:
+        clients.remove(client)
 
-# Between these comments is the json parser tool
 
-try:
-    received_packet = json.loads(message)
-    sender = received_packet["user"]
-    text = received_packet["message"]
+def handle_client(client_socket):
+    """Handles the continuous incoming data flow from a specific client."""
+    clients.add(client_socket)
+    print(f"🔌 New connection established. Total clients: {len(clients)}")
 
-    print(f"{sender}: {text}")
+    while True:
+        try:
+            data = client_socket.recv(4096)
+            if not data:
+                break
+            # Forward the incoming chat packet to everyone else
+            broadcast(data, client_socket)
+        except Exception:
+            break
 
-except json.JSONDecodeError:
-    print("Error: Could not decode incoming message.")
+    clients.remove(client_socket)
+    client_socket.close()
+    print(f"❌ Connection closed. Total clients: {len(clients)}")
 
-# Between these comments is the json parser tool
 
-client_socket.close()
-server.close()
+def start_server():
+    # Bind to 0.0.0.0 so it listens on all available networks (Local Wi-Fi and Tailscale)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("0.0.0.0", PORT))
+    server.listen()
+    print(f"📡 Term-Chat Master Server running on port {PORT}...")
 
-print("Server shut down cleanly.")
+    while True:
+        client_socket, _ = server.accept()
+        thread = threading.Thread(target=handle_client, args=(client_socket,))
+        thread.daemon = True
+        thread.start()
+
+
+if __name__ == "__main__":
+    start_server()
