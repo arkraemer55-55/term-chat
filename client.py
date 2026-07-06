@@ -4,6 +4,7 @@ import sys
 import curses
 import json
 from datetime import datetime
+import textwrap
 
 SERVER_IP = "100.70.188.58"
 PORT = 50002
@@ -38,18 +39,34 @@ def receive_messages(stdscr, msg_win, user_win):
 
 
 def draw_messages(msg_win):
+    """Renders the message feed with dynamic word-wrapping based on window width."""
     msg_win.erase()
     h, w = msg_win.getmaxyx()
-    max_visible = h - 2
+    max_line_width = w - 3  # Leave a small buffer padding for boundaries
 
-    visible_messages = (
-        messages[-max_visible:] if len(messages) > max_visible else messages
+    # Process and wrap all incoming messages
+    wrapped_lines = []
+    for msg in messages:
+        # textwrap.wrap breaks a single string into a list of chunks that fit max_line_width
+        chunks = textwrap.wrap(msg, width=max_line_width)
+        for chunk in chunks:
+            wrapped_lines.append(chunk)
+
+    # Calculate how many wrapped lines fit in the height of the window box
+    max_visible = h - 2
+    visible_lines = (
+        wrapped_lines[-max_visible:]
+        if len(wrapped_lines) > max_visible
+        else wrapped_lines
     )
-    for idx, msg in enumerate(visible_messages):
+
+    # Render the visible lines on screen
+    for idx, line in enumerate(visible_lines):
         try:
-            msg_win.addstr(idx + 1, 1, msg[: w - 2])
+            msg_win.addstr(idx + 1, 1, line)
         except curses.error:
             pass
+
     msg_win.box()
     msg_win.refresh()
 
