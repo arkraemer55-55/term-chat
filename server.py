@@ -3,46 +3,78 @@ import threading
 import json
 
 PORT = 50002
-clients = set()  # Keeps track of active client connections
+# Map sockets to usernames: { client_socket: username }
+clients = {}
 
 
-def broadcast(message_bytes, sender_socket):
-    """Sends a message to every connected client except the sender."""
-    removable = set()
+def broadcast_user_list():
+    """Sends the current list of active usernames to all connected clients."""
+    user_list = list(clients.values())
+    # Wrap it in a JSON packet so the client knows it's a system event, not text chat
+    packet = json.dumps({"type": "USERS", "data": user_list}).encode("utf-8")
+
+    removable = []
+    for client in clients:
+        try:
+            client.send(packet)
+        except Exception:
+            removable.append(client)
+
+    for client in removable:
+        del clients[client]
+
+
+def broadcast_message(message_str, sender_socket=None):
+    """Broadcasts a standard chat message string to everyone."""
+    packet = json.dumps({"type": "MSG", "data": message_str}).encode("utf-8")
+
+    removable = []
     for client in clients:
         if client != sender_socket:
             try:
-                client.send(message_bytes)
+                client.send(packet)
             except Exception:
-                removable.add(client)
+                removable.append(client)
 
-    # Clean up disconnected sockets safely
     for client in removable:
-        clients.remove(client)
+        del clients[client]
 
 
 def handle_client(client_socket):
-    """Handles the continuous incoming data flow from a specific client."""
-    clients.add(client_socket)
-    print(f"🔌 New connection established. Total clients: {len(clients)}")
+    """Handles data flow for a specific user."""
+    # First thing the client sends is its username string
+    try:
+        username = client_socket.recv(1024).decode("utf-8").strip()
+        if not username:
+            username = "Unknown"
+        clients[client_socket] = username
+        print(f"🔌 {username} joined. Total users: {len(clients)}")
+
+        # Notify everyone of the updated list
+        broadcast_user_list()
+    except Exception:
+        client_socket.close()
+        return
 
     while True:
         try:
             data = client_socket.recv(4096)
             if not data:
                 break
-            # Forward the incoming chat packet to everyone else
-            broadcast(data, client_socket)
+
+            # Forward incoming message packet
+            msg_str = data.decode("utf-8")
+            broadcast_message(msg_str, sender_socket=client_socket)
         except Exception:
             break
 
-    clients.remove(client_socket)
+    print(f"❌ {clients[client_socket]} disconnected.")
+    del clients[client_socket]
     client_socket.close()
-    print(f"❌ Connection closed. Total clients: {len(clients)}")
+    broadcast_user_list()
 
 
 def start_server():
-    # Bind to 0.0.0.0 so it listens on all available networks (Local Wi-Fi and Tailscale)
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("0.0.0.0", PORT))
